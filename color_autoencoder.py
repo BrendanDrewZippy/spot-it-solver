@@ -62,6 +62,13 @@ def split_samples_for_autoencoder_training(samples):
 
 
 def create_autoencoder_model(kernel_lambda, activity_lambda, input_shape):
+    """
+All the network creation magic happens here.
+Parameters:
+kernel_lambda:   L2 regularizer weight for the kernel (not sure what this actually means)
+activity_lambda: L1 regularizer weight for activations (also not sure what this actually means)
+input_shape:     Shape of input images
+"""
     num_filters = 8
     filter_size = (16, 16)
     pooling_size = (2, 2)
@@ -77,6 +84,15 @@ def create_autoencoder_model(kernel_lambda, activity_lambda, input_shape):
                activity_regularizer=regularizers.l1(activity_lambda),
                input_shape=input_shape)(input_image)
 
+    x = MaxPooling2D(pooling_size, padding='same')(x)
+    x = Conv2D(num_filters,
+               filter_size,
+               use_bias=True,
+               activation='relu',
+               padding='same',
+               data_format='channels_last',
+               kernel_regularizer=regularizers.l2(kernel_lambda),
+               activity_regularizer=regularizers.l1(activity_lambda))(x)
     x = MaxPooling2D(pooling_size, padding='same')(x)
     x = Conv2D(num_filters,
                filter_size,
@@ -106,6 +122,15 @@ def create_autoencoder_model(kernel_lambda, activity_lambda, input_shape):
                kernel_regularizer=regularizers.l2(kernel_lambda),
                activity_regularizer=regularizers.l1(activity_lambda))(x)
     x = UpSampling2D(pooling_size)(x)
+    x = Conv2D(num_filters,
+               filter_size,
+               use_bias=True,
+               activation='relu',
+               padding='same',
+               data_format='channels_last',
+               kernel_regularizer=regularizers.l2(kernel_lambda),
+               activity_regularizer=regularizers.l1(activity_lambda))(x)
+    x = UpSampling2D(pooling_size)(x)
     decoded = Conv2D(3,
                      filter_size,
                      use_bias=True,
@@ -114,7 +139,6 @@ def create_autoencoder_model(kernel_lambda, activity_lambda, input_shape):
                      data_format='channels_last',
                      kernel_regularizer=regularizers.l2(kernel_lambda),
                      activity_regularizer=regularizers.l1(activity_lambda))(x)
-
     return Model(input_image, decoded)
 
 def create_progress_callback(batch_size, training_size, num_epochs):
@@ -164,7 +188,7 @@ def main():
     kernel_lambdas = [10, 8, 6, 4, 2, 1]
     activity_lambdas = [10, 8, 6, 4, 2, 1]
 
-    trainingEpochs = 10
+    trainingEpochs = 100
     batchSize = 100
 
     performance = collections.defaultdict(dict)
@@ -181,8 +205,10 @@ def main():
 
             autoencoder = create_autoencoder_model(math.pow(10, -kernel_lambda), math.pow(10, -activity_lambda), samples[0][1].shape)
             autoencoder.compile(optimizer='nadam',
-                                metrics=['mean_absolute_error', 'mean_squared_error'],
-                                loss='mean_absolute_percentage_error')
+                                metrics=['mean_absolute_percentage_error',
+                                         'mean_squared_error',
+                                         'mean_absolute_error'],
+                                loss='mean_absolute_error')
 
             csv_file = str(output_base / 'solver.csv')
             csv_callback = CSVLogger(csv_file, separator=',', append='False')
@@ -200,8 +226,8 @@ def main():
             performance[kernel_lambda][activity_lambda] = loss_and_metrics
             models.save_model(autoencoder, output_base / 'model', overwrite=True)
 
-            metrics_file = output_base / 'metrics.json'
-            with open(metrics_file, 'r') as metrics:
+            metrics_file = str(output_base / 'metrics.json')
+            with open(metrics_file, 'wt') as metrics:
                 json.dump(loss_and_metrics, metrics, ensure_ascii=True, sort_keys=True, indent=2)            
 
 if '__main__' == __name__:
