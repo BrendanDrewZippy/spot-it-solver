@@ -14,6 +14,9 @@ import scipy.ndimage
 import random
 from pathlib import Path
 from tqdm import tqdm
+import shutil
+import os
+import json
 
 def load_raw_data_set():
     """
@@ -162,21 +165,26 @@ def main():
     activity_lambdas = [10, 8, 6, 4, 2, 1]
 
     trainingEpochs = 10
-    batchSize = 40
+    batchSize = 100
 
     performance = collections.defaultdict(dict)
 
     print('Performing grid search on kernel_lambdas x activity_lambdas')
     for kernel_lambda in tqdm(kernel_lambdas, desc='Kernel Lambda', leave=False):
         for activity_lambda in tqdm(activity_lambdas, desc='Activity Lambda', leave=False):
+            output_base = Path('.').resolve() / 'K{:03d}-A{:03d}'.format(kernel_lambda, activity_lambda)
+
+            if output_base.exists():
+                shutil.rmtree(str(output_base))
+            os.makedirs(str(output_base))
+            
 
             autoencoder = create_autoencoder_model(math.pow(10, -kernel_lambda), math.pow(10, -activity_lambda), samples[0][1].shape)
             autoencoder.compile(optimizer='nadam',
                                 metrics=['mean_absolute_error', 'mean_squared_error'],
                                 loss='mean_absolute_percentage_error')
 
-            file_name_base = 'K{:03d}-A{:03d}'.format(kernel_lambda, activity_lambda)
-            csv_file = file_name_base + '.csv'
+            csv_file = str(output_base / 'solver.csv')
             csv_callback = CSVLogger(csv_file, separator=',', append='False')
             lambda_callback = create_progress_callback(batchSize, autoencoder_training.shape[0], trainingEpochs)
 
@@ -190,9 +198,11 @@ def main():
 
             loss_and_metrics = autoencoder.evaluate(autoencoder_validation, autoencoder_validation, batch_size=128)
             performance[kernel_lambda][activity_lambda] = loss_and_metrics
-            print('VALIDATION PERFORMANCE: {} / {}: {}'.format(kernel_lambda, activity_lambda, loss_and_metrics))
+            models.save_model(autoencoder, output_base / 'model', overwrite=True)
 
-            models.save_model(autoencoder, file_name_base + '.model', overwrite=True)
+            metrics_file = output_base / 'metrics.json'
+            with open(metrics_file, 'r') as metrics:
+                json.dump(loss_and_metrics, metrics, ensure_ascii=True, sort_keys=True, indent=2)            
 
 if '__main__' == __name__:
     main()
